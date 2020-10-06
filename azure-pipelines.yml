@@ -1,0 +1,62 @@
+variables:
+#Branch Name
+ BranchName: 'master'
+
+#Agent variables   
+ PoolName: 'CT-Refresh'
+ DemandName: 'GitHubYAML'
+ DemandValue: 'true'
+
+#BUSpecific Variables
+ BuildPlatform: 'Any CPU'
+ BuildConfiguration: 'Release'
+ CompileStatusVar: Null
+
+
+trigger:
+- $(BranchName)
+
+name: MainSecurity_Nightly-GitHUBYAML_$(Date:yyyyMMdd)$(Rev:.r)
+
+jobs:
+- job : Build
+  pool:
+    name:  '$(PoolName)'
+    demands:
+    - GitHubYAML -equals $(DemandValue)
+  steps:
+  - script: 'git clean -fdx'
+    workingDirectory: '$(Build.SourcesDirectory)\CT_SW_Security'
+    displayName: 'CT_SW_Security CleanUp'
+
+  - task: BatchScript@1
+    displayName: 'Restore packages'
+    inputs:
+      filename: SecurityBuildDependency.bat
+      workingFolder: '$(Build.SourcesDirectory)'
+  
+  - powershell: |
+     $var = (gci env:*).GetEnumerator() | Sort-Object Name
+     $out = ""
+     Foreach ($v in $var) {$out = $out + "`t{0,-28} = {1,-28}`n" -f $v.Name, $v.Value}
+     Write-Host "dump variables on $env:BUILD_ARTIFACTSTAGINGDIRECTORY\test.md"
+     $fileName = "$env:BUILD_ARTIFACTSTAGINGDIRECTORY\test.md"
+     set-content $fileName $out
+     #write-output "##vso[task.addattachment type=Distributedtask.Core.Summary;name=Environment Variables;]$fileName"
+    displayName: 'Print variables'
+  - task: CmdLine@1
+    displayName: 'Run clean Build'
+    inputs:
+      filename: '$(Build.SourcesDirectory)\CT_SW_Tools\Nant\Nant.exe '
+      arguments: '-buildfile:Security.tfs.build clean.build -D:view="$(Build.SourcesDirectory)" -D:CCNetArtifactDirectory="$(Build.ArtifactStagingDirectory)"'
+      workingFolder: '$(Build.SourcesDirectory)\CT_SW_Security\Build'
+  
+  - powershell: |
+     # Write your powershell commands here.
+     Write-Host ("##vso[task.setvariable variable=$(CompileStatusVar);]Failed")
+    displayName: 'Compile Status - Failed'
+    condition: failed()
+  - powershell: |
+     # Write your powershell commands here.
+     Write-Host ("##vso[task.setvariable variable=$(CompileStatusVar);]Passed")
+    displayName: 'CompileStatus - Passed'
